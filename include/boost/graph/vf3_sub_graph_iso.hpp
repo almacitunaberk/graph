@@ -1,5 +1,5 @@
-#ifndef BOOST_PRECOMP_VF3_SUB_GRAPH_ISO_HPP
-#define BOOST_PRECOMP_VF3_SUB_GRAPH_ISO_HPP
+#ifndef BOOST_VF3_SUB_GRAPH_ISO_HPP
+#define BOOST_VF3_SUB_GRAPH_ISO_HPP
 
 #include <iostream>
 #include <iomanip>
