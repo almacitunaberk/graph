@@ -21,7 +21,7 @@
 namespace boost
 {
 
-namespace detail 
+namespace detail
 {
     template < typename GraphSmall, typename GraphLarge, 
                typename SmallGraphVertexClassMap, typename LargeGraphVertexClassMap,
@@ -180,6 +180,12 @@ namespace detail
 
             BOOST_ASSERT( num_vertices(graph_small) <= num_vertices(graph_large) );
             BOOST_ASSERT( num_edges(graph_small) <= num_edges(graph_large) );
+
+            small_indices_vertices_.resize(num_small_vertices_);
+            large_indices_vertices_.resize(num_large_vertices_);
+
+            small_vertex_class_.resize(num_small_vertices_);
+            large_vertex_class_.resize(num_large_vertices_);
             
             int64_t small_vertex_index = 0;
             int64_t current_class_index = 0;
@@ -188,13 +194,15 @@ namespace detail
                 small_vertices_indices_[node] = small_vertex_index;
                 small_indices_vertices_[small_vertex_index] = node;
                 parents_[node] = boost::graph_traits<GraphSmall>::null_vertex();
-                ++small_vertex_index;
                 ClassType c = small_graph_vertex_class_map_[node];
                 if(class_index_map_.find(c) == class_index_map_.end())
                 {
                     current_class_index = class_index_map_.size();
                     class_index_map_[c] = current_class_index;
+                    
                 }
+                small_vertex_class_[small_vertex_index] = class_index_map_[c];
+                ++small_vertex_index;
             }
 
             int64_t large_vertex_index = 0;
@@ -202,16 +210,31 @@ namespace detail
             {
                 large_vertices_indices_[node] = large_vertex_index;
                 large_indices_vertices_[large_vertex_index] = node;
-                ++large_vertex_index;
                 ClassType c = large_graph_vertex_class_map_[node];
                 if(class_index_map_.find(c) == class_index_map_.end())
                 {
                     current_class_index = class_index_map_.size();
                     class_index_map_[c] = current_class_index;
                 }
+                large_vertex_class_[large_vertex_index] = class_index_map_[c];
+                ++large_vertex_index;
             }
 
             num_classes_ = class_index_map_.size();
+
+            pp_sizes_.resize((num_small_vertices_+1)*num_classes_,0);
+            ps_sizes_.resize((num_small_vertices_+1)*num_classes_,0);
+            sp_sizes_.resize((num_small_vertices_+1)*num_classes_,0);
+            ss_sizes_.resize((num_small_vertices_+1)*num_classes_,0);
+            pv_sizes_.resize((num_small_vertices_+1)*num_classes_,0);
+            sv_sizes_.resize((num_small_vertices_+1)*num_classes_,0);
+
+            temp_pp_sizes_.assign(num_classes_,0);
+            temp_ps_sizes_.assign(num_classes_,0);
+            temp_sp_sizes_.assign(num_classes_,0);
+            temp_ss_sizes_.assign(num_classes_,0);
+            temp_pv_sizes_.assign(num_classes_,0);
+            temp_sv_sizes_.assign(num_classes_,0);
 
             initialize();
 
@@ -336,12 +359,16 @@ namespace detail
                 return false;
             }
 
-            std::vector<int64_t> pp_sizes(num_classes_, 0);
-            std::vector<int64_t> ps_sizes(num_classes_, 0);
-            std::vector<int64_t> sp_sizes(num_classes_, 0);
-            std::vector<int64_t> ss_sizes(num_classes_, 0);
-            std::vector<int64_t> pv_sizes(num_classes_, 0);
-            std::vector<int64_t> sv_sizes(num_classes_, 0);
+            auto fast_zero = [](std::vector<int64_t>& v){
+                std::memset(v.data(), 0, v.size() * sizeof(int64_t));
+            };
+
+            fast_zero(temp_pp_sizes_);
+            fast_zero(temp_ps_sizes_);
+            fast_zero(temp_sp_sizes_);
+            fast_zero(temp_ss_sizes_);
+            fast_zero(temp_pv_sizes_);
+            fast_zero(temp_sv_sizes_);
 
             BGL_FORALL_INEDGES_T(v_large, e, graph_large_, GraphLarge)
             {
@@ -356,25 +383,19 @@ namespace detail
                     }
                     continue;
                 }
-                ClassType c = large_graph_vertex_class_map_[pred];
-                int64_t c_index = class_index_map_[c];
-                if(pred_index >= large_predecessors_.size() ||
-                    pred_index >= large_successors_.size())
-                {
-                    std::cout << "GOTCHA" << std::endl;
-                }
+                int64_t c_index = large_vertex_class_[pred_index];
                 if(large_predecessors_[pred_index])
                 {
-                    pp_sizes[c_index]++;
+                    temp_pp_sizes_[c_index]++;
                 } else {
                     if(!large_successors_[pred_index])
                     {
-                        pv_sizes[c_index]++;
+                        temp_pv_sizes_[c_index]++;
                     }
                 }
                 if(large_successors_[pred_index])
                 {
-                    ps_sizes[c_index]++;
+                    temp_ps_sizes_[c_index]++;
                 }
             }
 
@@ -392,25 +413,19 @@ namespace detail
                     }
                     continue;
                 }
-                ClassType c = large_graph_vertex_class_map_[succ];
-                int64_t c_index = class_index_map_[c];
-                if(succ_index >= large_predecessors_.size() ||
-                    succ_index >= large_successors_.size())
-                {
-                    std::cout << "GOTCHA" << std::endl;
-                }
+                int64_t c_index = large_vertex_class_[succ_index];
                 if(large_predecessors_[succ_index])
                 {
-                    sp_sizes[c_index]++;
+                    temp_sp_sizes_[c_index]++;
                 } else {
                     if(!large_successors_[succ_index])
                     {
-                        sv_sizes[c_index]++;
+                        temp_sv_sizes_[c_index]++;
                     }
                 }
                 if(large_successors_[succ_index])
                 {
-                    ss_sizes[c_index]++;
+                    temp_ss_sizes_[c_index]++;
                 }
             }
 
@@ -418,12 +433,12 @@ namespace detail
 
             for(int64_t c_index = 0; c_index < num_classes_; ++c_index)
             {
-                if(pp_sizes_[curr_depth][c_index] > pp_sizes[c_index] ||
-                    ps_sizes_[curr_depth][c_index] > ps_sizes[c_index] ||
-                    sp_sizes_[curr_depth][c_index] > sp_sizes[c_index] ||
-                    ss_sizes_[curr_depth][c_index] > ss_sizes[c_index] ||
-                    pv_sizes_[curr_depth][c_index] > pv_sizes[c_index] ||
-                    sv_sizes_[curr_depth][c_index] > sv_sizes[c_index])
+                if(pp_sizes_[curr_depth*num_classes_+c_index] > temp_pp_sizes_[c_index] ||
+                    ps_sizes_[curr_depth*num_classes_+c_index] > temp_ps_sizes_[c_index] ||
+                    sp_sizes_[curr_depth*num_classes_+c_index] > temp_sp_sizes_[c_index] ||
+                    ss_sizes_[curr_depth*num_classes_+c_index] > temp_ss_sizes_[c_index] ||
+                    pv_sizes_[curr_depth*num_classes_+c_index] > temp_pv_sizes_[c_index] ||
+                    sv_sizes_[curr_depth*num_classes_+c_index] > temp_sv_sizes_[c_index])
                 {
                     return false;
                 }
@@ -436,13 +451,6 @@ namespace detail
         {
             int64_t max_depth = num_small_vertices_;
 
-            pp_sizes_.assign(max_depth+1, std::vector<int64_t>(num_classes_, 0));
-            ps_sizes_.assign(max_depth+1, std::vector<int64_t>(num_classes_, 0));
-            sp_sizes_.assign(max_depth+1, std::vector<int64_t>(num_classes_, 0));
-            ss_sizes_.assign(max_depth+1, std::vector<int64_t>(num_classes_, 0));
-            pv_sizes_.assign(max_depth+1, std::vector<int64_t>(num_classes_, 0));
-            sv_sizes_.assign(max_depth+1, std::vector<int64_t>(num_classes_, 0));
-
             boost::dynamic_bitset<> inserted(num_small_vertices_);
             boost::dynamic_bitset<> p_set(num_small_vertices_);
             boost::dynamic_bitset<> s_set(num_small_vertices_);
@@ -451,7 +459,7 @@ namespace detail
             boost::dynamic_bitset<> new_preds(num_small_vertices_);
             boost::dynamic_bitset<> new_succes(num_small_vertices_);
 
-            for(int64_t depth=0; depth<=max_depth; ++depth)
+            for(int64_t depth=0; depth < max_depth; ++depth)
             {
                 new_preds.reset();
                 new_succes.reset();
@@ -463,25 +471,24 @@ namespace detail
                     SmallVertexType pred = boost::source(e, graph_small_);
                     int64_t pred_index = small_vertices_indices_[pred];
 
-                    ClassType c = small_graph_vertex_class_map_[pred];
-                    int64_t c_index = class_index_map_[c];
+                    int64_t c_index = small_vertex_class_[pred_index];
 
                     if(p_set[pred_index])
                     {
-                        pp_sizes_[depth][c_index]+=1;
+                        pp_sizes_[depth*num_classes_+c_index]+=1;
                     } else {
-                        if(!s_set[pred_index] && !inserted[pred])
+                        if(!s_set[pred_index] && !inserted[pred_index])
                         {
                             parents_[pred] = current_node;
                         }
                     }
                     if(s_set[pred_index])
                     {
-                        ps_sizes_[depth][c_index]+=1;
+                        ps_sizes_[depth*num_classes_+c_index]+=1;
                     }
                     if(v_set[pred_index])
                     {
-                        pv_sizes_[depth][c_index]+=1;
+                        pv_sizes_[depth*num_classes_+c_index]+=1;
                     }
                     new_preds.set(pred_index);
                 }
@@ -491,16 +498,15 @@ namespace detail
                     SmallVertexType succ = boost::target(e, graph_small_);
                     int64_t succ_index = small_vertices_indices_[succ];
 
-                    ClassType c = small_graph_vertex_class_map_[succ];
-                    int64_t c_index = class_index_map_[c];
+                    int64_t c_index = small_vertex_class_[succ_index];
 
                     if(p_set[succ_index])
                     {
-                        sp_sizes_[depth][c_index] += 1;
+                        sp_sizes_[depth*num_classes_+c_index] += 1;
                     }
                     if(s_set[succ_index])
                     {
-                        ss_sizes_[depth][c_index] += 1;
+                        ss_sizes_[depth*num_classes_+c_index] += 1;
                     } else {
                         if(!p_set[succ_index] && !inserted[succ_index])
                         {
@@ -509,7 +515,7 @@ namespace detail
                     }
                     if(v_set[succ_index])
                     {
-                        sv_sizes_[depth][c_index] += 1;
+                        sv_sizes_[depth*num_classes_+c_index] += 1;
                     }
                     new_succes.set(succ_index);
                 }
@@ -566,6 +572,7 @@ namespace detail
                         {
                             return nodes_total_degree[a] > nodes_total_degree[b];
                         }
+                        return small_vertices_indices_.at(a) < small_vertices_indices_.at(b);
                     };
                     next_node = *std::min_element(remaining_nodes_candidates.begin(), remaining_nodes_candidates.end(), cmp);
                 }
@@ -599,8 +606,8 @@ namespace detail
         {   
             std::unordered_map< ClassType, int64_t > label_counts_;
             label_counts(label_counts_);
-            std::vector<int64_t> cumulative_in_degrees(num_small_vertices_+1);
-            std::vector<int64_t> cumulative_out_degrees(num_small_vertices_+1);
+            std::vector<int64_t> cumulative_in_degrees;
+            std::vector<int64_t> cumulative_out_degrees;
             cumulative_degrees(cumulative_in_degrees, cumulative_out_degrees);
             int64_t label_count;
             
@@ -678,13 +685,15 @@ namespace detail
             {
                 out_hist[out_d]++;
             }
-
+            in_ge.resize(max_in_degree + 1);
             int64_t in_running_sum = 0;
             for (int64_t d1 = max_in_degree; d1 >= 0; --d1) {
                 in_running_sum += in_hist[d1];
                 in_ge[d1] = in_running_sum;
             }
+
             int64_t out_running_sum = 0;
+            out_ge.resize(max_out_degree + 1);
             for(int64_t d2 = max_out_degree; d2 >= 0; --d2)
             {
                 out_running_sum += out_hist[d2];
@@ -696,7 +705,7 @@ namespace detail
         const GraphLarge& graph_large_;
         const SmallGraphVertexClassMap& small_graph_vertex_class_map_;
         const LargeGraphVertexClassMap& large_graph_vertex_class_map_;
-        const VertexCompPred& vertex_comp_pred_;
+        const VertexCompPred vertex_comp_pred_;
 
         int64_t num_small_vertices_;
         int64_t num_large_vertices_;
@@ -705,21 +714,31 @@ namespace detail
 
         std::unordered_map< SmallVertexType, LargeVertexType > core_large_;
         std::unordered_map< LargeVertexType, SmallVertexType > core_small_;
+        std::vector<int64_t> large_vertex_class_;
+        std::vector<int64_t> small_vertex_class_;
 
-        std::unordered_map< int64_t, SmallVertexType > small_vertices_indices_;
-        std::unordered_map< SmallVertexType, int64_t > small_indices_vertices_;
-        std::unordered_map< int64_t, LargeVertexType > large_vertices_indices_;
-        std::unordered_map< LargeVertexType, int64_t > large_indices_vertices_;
+        std::vector< SmallVertexType > small_indices_vertices_;
+        std::unordered_map< SmallVertexType, int64_t > small_vertices_indices_;
+        std::vector< LargeVertexType > large_indices_vertices_;
+        std::unordered_map< LargeVertexType, int64_t > large_vertices_indices_;
+
         vf3_state<GraphSmall, GraphLarge, SmallGraphVertexClassMap, LargeGraphVertexClassMap, Callback, VertexCompPred> state_;
         
         std::vector<SmallVertexType> node_order_;
 
-        std::vector<std::vector<int64_t>> pp_sizes_;
-        std::vector<std::vector<int64_t>> ps_sizes_;
-        std::vector<std::vector<int64_t>> sp_sizes_;
-        std::vector<std::vector<int64_t>> ss_sizes_;
-        std::vector<std::vector<int64_t>> pv_sizes_;
-        std::vector<std::vector<int64_t>> sv_sizes_;
+        std::vector<int64_t> pp_sizes_;
+        std::vector<int64_t> ps_sizes_;
+        std::vector<int64_t> sp_sizes_;
+        std::vector<int64_t> ss_sizes_;
+        std::vector<int64_t> pv_sizes_;
+        std::vector<int64_t> sv_sizes_;
+
+        std::vector<int64_t> temp_pp_sizes_;
+        std::vector<int64_t> temp_ps_sizes_;
+        std::vector<int64_t> temp_sp_sizes_;
+        std::vector<int64_t> temp_ss_sizes_;
+        std::vector<int64_t> temp_pv_sizes_;
+        std::vector<int64_t> temp_sv_sizes_;
 
         std::unordered_map<SmallVertexType, SmallVertexType> parents_;
 
@@ -748,7 +767,7 @@ namespace detail
 } // namespace detail
 
 template < typename Graph >
-int get(const detail::default_vertex_class_map<Graph>& map,
+int get(const precomp_detail::default_vertex_class_map<Graph>& map,
         const typename graph_traits<Graph>::vertex_descriptor& v)
 {
     return map[v];
@@ -762,15 +781,15 @@ bool vf3_subgraph_iso(const GraphSmall& graph_small,
     using SmallVertexType = typename graph_traits<GraphSmall>::vertex_descriptor;
     using LargeVertexType = typename graph_traits<GraphLarge>::vertex_descriptor;
 
-    detail::default_vertex_class_map<GraphSmall> small_map;
-    detail::default_vertex_class_map<GraphLarge> large_map;
-    detail::vertex_always_true vertex_comp;
+    precomp_detail::default_vertex_class_map<GraphSmall> small_map;
+    precomp_detail::default_vertex_class_map<GraphLarge> large_map;
+    precomp_detail::vertex_always_true vertex_comp;
 
-    detail::matcher<GraphSmall, GraphLarge,
-                            detail::default_vertex_class_map<GraphSmall>,
-                            detail::default_vertex_class_map<GraphLarge>,
+    precomp_detail::matcher<GraphSmall, GraphLarge,
+                            precomp_detail::default_vertex_class_map<GraphSmall>,
+                            precomp_detail::default_vertex_class_map<GraphLarge>,
                             Callback,
-                            detail::vertex_always_true>
+                            precomp_detail::vertex_always_true>
         m(graph_small, graph_large, small_map, large_map, callback, vertex_comp);
     return m.match();
 }
@@ -786,12 +805,12 @@ bool vf3_subgraph_iso(const GraphSmall& graph_small,
                       Callback callback)
 {
 
-    detail::vertex_always_true vertex_comp;
-    detail::matcher<GraphSmall, GraphLarge,
+    precomp_detail::vertex_always_true vertex_comp;
+    precomp_detail::matcher<GraphSmall, GraphLarge,
                             SmallGraphVertexClassMap,
                             LargeGraphVertexClassMap,
                             Callback,
-                            detail::vertex_always_true>
+                            precomp_detail::vertex_always_true>
             m(graph_small, graph_large, small_map, large_map, callback, vertex_comp);
     return m.match();
 }
@@ -808,8 +827,8 @@ bool vf3_subgraph_iso(const GraphSmall& graph_small,
                       Callback callback,
                       VertexCompPred vertex_comp_pred)
 {
-    detail::vertex_always_true vertex_comp;
-    detail::matcher<GraphSmall, GraphLarge,
+    precomp_detail::vertex_always_true vertex_comp;
+    precomp_detail::matcher<GraphSmall, GraphLarge,
                             SmallGraphVertexClassMap,
                             LargeGraphVertexClassMap,
                             Callback,
