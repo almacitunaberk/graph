@@ -427,7 +427,7 @@ namespace detail
                     {
                         return false;
                     } else {
-                        if(!edge_comp_pred_(*it, edge))
+                        if(!edge_comp_pred_(*it, edge.first))
                         {
                             return false;
                         }
@@ -447,7 +447,7 @@ namespace detail
                     {
                         return false;
                     } else {
-                        if(!edge_comp_pred_(*it, edge))
+                        if(!edge_comp_pred_(*it, edge.first))
                         {
                             return false;
                         }
@@ -467,7 +467,7 @@ namespace detail
                     {
                         return false;
                     } else {
-                        if(!edge_comp_pred_(edge, *it))
+                        if(!edge_comp_pred_(edge.first, *it))
                         {
                             return false;
                         }
@@ -487,7 +487,7 @@ namespace detail
                     {
                         return false;
                     } else {
-                        if(!edge_comp_pred_(edge, *it))
+                        if(!edge_comp_pred_(edge.first, *it))
                         {
                             return false;
                         }
