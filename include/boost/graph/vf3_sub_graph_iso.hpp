@@ -43,13 +43,15 @@ namespace detail
     template < typename GraphSmall, typename GraphLarge, 
                typename SmallGraphVertexClassMap, typename LargeGraphVertexClassMap,
                typename SubgraphIsoUserCallback ,
-               typename VertexEquivalencePredicate >
+               typename VertexEquivalencePredicate,
+               typename EdgeEquivalencePredicate >
     class matcher;
 
     template < typename GraphSmall_, typename GraphLarge_, 
                typename SmallGraphVertexClassMap_, typename LargeGraphVertexClassMap_,
                typename SubgraphIsoUserCallback_ ,
-               typename VertexEquivalencePredicate_ >
+               typename VertexEquivalencePredicate_,
+               typename EdgeEquivalencePredicate_ >
     class vf3_state
     {
 
@@ -60,7 +62,7 @@ namespace detail
 
         public:
         vf3_state(): matcher_ptr(nullptr) {}
-        vf3_state(matcher<GraphSmall_, GraphLarge_, SmallGraphVertexClassMap_, LargeGraphVertexClassMap_, SubgraphIsoUserCallback_, VertexEquivalencePredicate_>* m,
+        vf3_state(matcher<GraphSmall_, GraphLarge_, SmallGraphVertexClassMap_, LargeGraphVertexClassMap_, SubgraphIsoUserCallback_, VertexEquivalencePredicate_, EdgeEquivalencePredicate_>* m,
                 LargeVertexType v_large = graph_traits<GraphLarge_>::null_vertex(), SmallVertexType v_small = graph_traits<GraphSmall_>::null_vertex())
         : v_large_(v_large)
         , v_small_(v_small)
@@ -160,7 +162,7 @@ namespace detail
         ~vf3_state() { restore(); }
         vf3_state(const vf3_state&) = delete;
 
-        matcher<GraphSmall_, GraphLarge_, SmallGraphVertexClassMap_, LargeGraphVertexClassMap_, SubgraphIsoUserCallback_, VertexEquivalencePredicate_>* matcher_ptr;
+        matcher<GraphSmall_, GraphLarge_, SmallGraphVertexClassMap_, LargeGraphVertexClassMap_, SubgraphIsoUserCallback_, VertexEquivalencePredicate_, EdgeEquivalencePredicate_>* matcher_ptr;
         LargeVertexType v_large_;
         SmallVertexType v_small_;
         size_t depth_;
@@ -173,7 +175,8 @@ namespace detail
                typename SmallGraphVertexClassMap,
                typename LargeGraphVertexClassMap,
                typename SubgraphIsoUserCallback,
-               typename VertexEquivalencePredicate >
+               typename VertexEquivalencePredicate,
+               typename EdgeEquivalencePredicate>
     class matcher
     {   
         public:
@@ -195,7 +198,8 @@ namespace detail
                 const SmallGraphVertexClassMap& small_map,
                 const LargeGraphVertexClassMap& large_map,
                 SubgraphIsoUserCallback callback,
-                VertexEquivalencePredicate vertex_comp
+                VertexEquivalencePredicate vertex_comp,
+                EdgeEquivalencePredicate edge_comp
             )
         : graph_small_(graph_small)
         , graph_large_(graph_large)
@@ -203,6 +207,7 @@ namespace detail
         , large_vertex_class_map_(large_map)
         , callback_(callback)
         , vertex_comp_pred_(vertex_comp)
+        , edge_comp_pred_(edge_comp)
         {
             BOOST_STATIC_ASSERT(( is_same<SmallClassType, LargeClassType>::value ));
 
@@ -266,7 +271,7 @@ namespace detail
 
             initialize();
             
-            state_ = vf3_state<GraphSmall, GraphLarge, SmallGraphVertexClassMap, LargeGraphVertexClassMap, SubgraphIsoUserCallback, VertexEquivalencePredicate>(this);
+            state_ = vf3_state<GraphSmall, GraphLarge, SmallGraphVertexClassMap, LargeGraphVertexClassMap, SubgraphIsoUserCallback, VertexEquivalencePredicate, EdgeEquivalencePredicate>(this);
             found_match_ = false;
             stop_search_ = false;
         }
@@ -300,7 +305,14 @@ namespace detail
                 {
                     if (syntactic_feasibility(v_large_next, v_small_next))
                     {
-                        vf3_state<GraphSmall, GraphLarge, SmallGraphVertexClassMap, LargeGraphVertexClassMap, SubgraphIsoUserCallback, VertexEquivalencePredicate> new_state(this, v_large_next, v_small_next);
+                        vf3_state<GraphSmall, GraphLarge, 
+                                  SmallGraphVertexClassMap, 
+                                  LargeGraphVertexClassMap, 
+                                  SubgraphIsoUserCallback, 
+                                  VertexEquivalencePredicate, 
+                                  EdgeEquivalencePredicate
+                        > new_state(this, v_large_next, v_small_next);
+                        
                         if (match())
                         {
                             if(stop_search_)
@@ -414,6 +426,11 @@ namespace detail
                     if(!edge.second)
                     {
                         return false;
+                    } else {
+                        if(!edge_comp_pred_(*it, edge))
+                        {
+                            return false;
+                        }
                     }
                 }
                 all_small_predecessors.set(small_vertices_indices_[pred]);
@@ -429,6 +446,11 @@ namespace detail
                     if(!edge.second)
                     {
                         return false;
+                    } else {
+                        if(!edge_comp_pred_(*it, edge))
+                        {
+                            return false;
+                        }
                     }
                 }
                 all_small_successors.set(small_vertices_indices_[succ]);
@@ -444,6 +466,11 @@ namespace detail
                     if(!edge.second)
                     {
                         return false;
+                    } else {
+                        if(!edge_comp_pred_(edge, *it))
+                        {
+                            return false;
+                        }
                     }
                 }
                 all_large_predecessors.set(large_vertices_indices_[pred]);
@@ -459,6 +486,11 @@ namespace detail
                     if(!edge.second)
                     {
                         return false;
+                    } else {
+                        if(!edge_comp_pred_(edge, *it))
+                        {
+                            return false;
+                        }
                     }
                 }
                 all_large_successors.set(large_vertices_indices_[succ]);
@@ -605,147 +637,7 @@ namespace detail
                     pos = p_s_union_set.find_next(pos);
                 }
             }
-
-            /*
-            mapped_nodes.set(small_vertices_indices_[node_order_[0]]);
-            auto in_edges = boost::in_edges(node_order_[0], graph_small_);
-            for(auto it = in_edges.first; it != in_edges.second; ++it)
-            {
-                VertexSmallType pred = boost::source(*it, graph_small_);
-                size_t pred_index = small_vertices_indices_[pred];
-                all_predecessors.set(pred_index);
-            }
-            auto out_edges = boost::out_edges(node_order_[0], graph_small_);
-            for(auto it = out_edges.first; it != out_edges.second; ++it)
-            {
-                VertexSmallType succ = boost::target(*it, graph_small_);
-                size_t succ_index = small_vertices_indices_[succ];
-                all_successors.set(succ_index);
-            }
-
-            for(size_t depth=1; depth <= max_depth; ++depth)
-            {
-                VertexSmallType curr_node = node_order_[depth-1];
-                size_t index = small_vertices_indices_[curr_node];
-                mapped_nodes.set(index);
-
-                auto in_edges = boost::in_edges(curr_node, graph_small_);
-                for(auto it = in_edges.first; it != in_edges.second; ++it)
-                {
-                    VertexSmallType pred = boost::source(*it, graph_small_);
-                    size_t pred_index = small_vertices_indices_[pred];
-                    all_predecessors.set(pred_index);
-                }
-                auto out_edges = boost::out_edges(curr_node, graph_small_);
-                for(auto it = out_edges.first; it != out_edges.second; ++it)
-                {
-                    VertexSmallType succ = boost::target(*it, graph_small_);
-                    size_t succ_index = small_vertices_indices_[succ];
-                    all_successors.set(succ_index);
-                }
-                p_small_sets_[depth] = (small_vertices & (~mapped_nodes)) & all_predecessors;
-                s_small_sets_[depth] = (small_vertices & (~mapped_nodes)) & all_successors;
-                v_small_sets_[depth] = small_vertices & ~(mapped_nodes | p_small_sets_[depth] | s_small_sets_[depth]);
-            }
-
-            for(size_t depth=0; depth<=max_depth; ++depth)
-            {
-                auto p_small_cls_sets_map_ = std::unordered_map<NodeClassificationType, boost::dynamic_bitset<>>();
-                auto s_small_cls_sets_map_ = std::unordered_map<NodeClassificationType, boost::dynamic_bitset<>>();
-                boost::dynamic_bitset<> p_s_union_set(num_small_vertices_);
-                p_s_union_set = p_small_sets_[depth] | s_small_sets_[depth];
-                size_t pos = p_s_union_set.find_first();
-                while(pos != boost::dynamic_bitset<>::npos)
-                {
-                    VertexSmallType node = small_indices_vertices_[pos];
-                    auto cls = graph_small_classes_[node];
-                    if(p_small_sets_[depth][pos])
-                    {
-                        if(p_small_cls_sets_map_.find(cls) == p_small_cls_sets_map_.end())
-                        {
-                            p_small_cls_sets_map_[cls] = boost::dynamic_bitset<>(num_small_vertices_);
-                        }
-                        if(!p_small_cls_sets_map_[cls][pos])
-                        {
-                            p_small_cls_sets_map_[cls].set(pos);
-                            if(parents_[node] == NULL)
-                            {
-                                parents_[node] = node_order_[depth-1];
-                            }
-                        }
-                    }
-                    if(s_small_sets_[depth][pos]) {
-                        if(s_small_cls_sets_map_.find(cls) == s_small_cls_sets_map_.end())
-                        {
-                            s_small_cls_sets_map_[cls] = boost::dynamic_bitset<>(num_small_vertices_);
-                        }
-                        if(!s_small_cls_sets_map_[cls][pos])
-                        {
-                            s_small_cls_sets_map_[cls].set(pos);
-                            if(parents_[node] == NULL)
-                            {
-                                parents_[node] = node_order_[depth-1];
-                            }
-                        }
-                    }
-                    pos = p_s_union_set.find_next(pos);
-                }
-            }
-            */
         }
-        /*
-        void classify_nodes()
-        {
-            std::pair<VertexLargeIterator, VertexLargeIterator> vp = boost::vertices(graph_large_);
-            auto default_cls = NodeClassificationType();
-            for(VertexLargeIterator it = vp.first; it != vp.second; ++it)
-            {
-                // TODO: The default_node_class should be a parameter
-                graph_large_classes_[*it] = default_cls;
-            }
-            std::pair<VertexSmallIterator, VertexSmallIterator> vp_small = boost::vertices(graph_small_);
-            for(VertexSmallIterator it = vp_small.first; it != vp_small.second; ++it)
-            {
-                graph_small_classes_[*it] = default_cls;
-            }
-            if (large_node_classification_func_ != nullptr && small_node_classification_func_ != nullptr) 
-            {
-                vp = boost::vertices(graph_large_);
-                for(VertexLargeIterator it = vp.first; it != vp.second; ++it)
-                {
-                    VertexLargeType v = *it;
-                    NodeClassificationType label = large_node_classification_func_(v, graph_large_);
-                    graph_large_classes_[v] = label;
-                    if(graph_large_class_nodes_.find(label) == graph_large_class_nodes_.end())
-                    {
-                        graph_large_class_nodes_[label] = boost::dynamic_bitset<>(num_large_vertices_);
-                    }
-                    graph_large_class_nodes_[label].set(large_vertices_indices_[v]);
-                    all_classes_.insert(label);
-                }
-                vp_small = boost::vertices(graph_small_);
-                for(VertexSmallIterator it = vp_small.first; it != vp_small.second; ++it)
-                {
-                    VertexSmallType v = *it;
-                    NodeClassificationType label = small_node_classification_func_(v, graph_small_);
-                    graph_small_classes_[v] = label;
-                    if(graph_small_class_nodes_.find(label) == graph_small_class_nodes_.end())
-                    {
-                        graph_small_class_nodes_[label] = boost::dynamic_bitset<>(num_small_vertices_);
-                    }
-                    graph_small_class_nodes_[label].set(small_vertices_indices_[v]);
-                    all_classes_.insert(label);
-                }
-            } else {
-                graph_large_class_nodes_[default_cls] = boost::dynamic_bitset<>(num_large_vertices_);
-                graph_large_class_nodes_[default_cls].set();
-                graph_small_class_nodes_[default_cls] = boost::dynamic_bitset<>(num_small_vertices_);
-                graph_small_class_nodes_[default_cls].set();
-                all_classes_.insert(default_cls);
-            }
-
-        }
-        */
 
         void order_graph_small_vertices()
         {
@@ -925,9 +817,9 @@ namespace detail
         const GraphLarge& graph_large_;
         const SmallGraphVertexClassMap& small_vertex_class_map_;
         const LargeGraphVertexClassMap& large_vertex_class_map_;
-
         SubgraphIsoUserCallback callback_;
         VertexEquivalencePredicate vertex_comp_pred_;
+        EdgeEquivalencePredicate edge_comp_pred_;
 
         std::unordered_map<ClassType, uint64_t> class_index_map_;
 
@@ -953,7 +845,7 @@ namespace detail
 
         std::vector<SmallVertexType> node_order_;
 
-        vf3_state< GraphSmall, GraphLarge, SmallGraphVertexClassMap, LargeGraphVertexClassMap, SubgraphIsoUserCallback, VertexEquivalencePredicate > state_;
+        vf3_state< GraphSmall, GraphLarge, SmallGraphVertexClassMap, LargeGraphVertexClassMap, SubgraphIsoUserCallback, VertexEquivalencePredicate, EdgeEquivalencePredicate> state_;
 
         std::unordered_map< ClassType, boost::dynamic_bitset<>> graph_large_class_nodes_;
         std::unordered_map< ClassType, boost::dynamic_bitset<>> graph_small_class_nodes_;
@@ -962,12 +854,7 @@ namespace detail
         std::vector<boost::dynamic_bitset<>> p_small_sets_;
         std::vector<boost::dynamic_bitset<>> s_small_sets_;
         std::vector<boost::dynamic_bitset<>> v_small_sets_;
-        std::vector<boost::dynamic_bitset<>> pp_sets_len;
-        std::vector<boost::dynamic_bitset<>> ps_sets_len;
-        std::vector<boost::dynamic_bitset<>> sp_sets_len;
-        std::vector<boost::dynamic_bitset<>> ss_sets_len;
-        std::vector<boost::dynamic_bitset<>> pv_sets_len;
-        std::vector<boost::dynamic_bitset<>> sv_sets_len;
+
         std::unordered_map<SmallVertexType, SmallVertexType> parents_;
         boost::dynamic_bitset<> large_predecessors_;
         boost::dynamic_bitset<> large_successors_;
@@ -993,6 +880,13 @@ namespace detail
             return true;
         }
     }; // struct vertex_always_true
+
+    struct edge_always_true {
+        template< typename E1, typename E2>
+        bool operator()(const E1&, const E2&) const noexcept {
+            return true;
+        }
+    }; // struct edge_always_true
     
 
 } // namespace detail
@@ -1017,15 +911,17 @@ bool vf3_subgraph_iso(
     detail::default_vertex_class_map<GraphSmall> small_map;
     detail::default_vertex_class_map<GraphLarge> large_map;
     detail::vertex_always_true vertex_comp;
+    detail::edge_always_true edge_comp;
 
     detail::matcher<GraphSmall, GraphLarge,
         detail::default_vertex_class_map<GraphSmall>,
         detail::default_vertex_class_map<GraphLarge>,
         SubgraphIsoUserCallback,
-        detail::vertex_always_true>
-    m(graph_small, graph_large, small_map, large_map, callback, vertex_comp);
+        detail::vertex_always_true,
+        detail::edge_always_true>
+    m(graph_small, graph_large, small_map, large_map, callback, vertex_comp, edge_comp);
     return m.match();
-} // namespace boost
+}
 
 template < typename GraphSmall, typename GraphLarge,
             typename SmallGraphVertexClassMap,
@@ -1040,12 +936,15 @@ bool vf3_subgraph_iso(
 )
 {
     detail::vertex_always_true vertex_comp;
+    detail::edge_always_true edge_comp;
+
     detail::matcher<GraphSmall, GraphLarge,
                     SmallGraphVertexClassMap,
                     LargeGraphVertexClassMap,
                     SubgraphIsoUserCallback,
-                    detail::vertex_always_true>
-        m(graph_small, graph_large, small_map, large_map, callback, vertex_comp);
+                    detail::vertex_always_true,
+                    detail::edge_always_true>
+        m(graph_small, graph_large, small_map, large_map, callback, vertex_comp, edge_comp);
     return m.match();
 }
 
@@ -1062,14 +961,69 @@ bool vf3_subgraph_iso(
     SubgraphIsoUserCallback callback,
     VertexEquivalencePredicate vertex_comp_pred)
 {
+
+    detail::edge_always_true edge_comp;
+
     detail::matcher<GraphSmall, GraphLarge,
                     SmallGraphVertexClassMap,
                     LargeGraphVertexClassMap,
                     SubgraphIsoUserCallback,
-                    VertexEquivalencePredicate>
-        m(graph_small, graph_large, small_map, large_map, callback, vertex_comp_pred);
+                    VertexEquivalencePredicate,
+                    detail::edge_always_true>
+        m(graph_small, graph_large, small_map, large_map, callback, vertex_comp_pred, edge_comp);
     return m.match();
 }
+
+template< typename GraphSmall, typename GraphLarge, 
+          typename SubgraphIsoUserCallback, 
+          typename VertexEquivalencePredicate>
+bool vf3_subgraph_iso(
+    const GraphSmall& graph_small,
+    const GraphLarge& graph_large,
+    SubgraphIsoUserCallback& callback,
+    VertexEquivalencePredicate vertex_comp_pred
+)
+{
+    detail::default_vertex_class_map<GraphSmall> small_map;
+    detail::default_vertex_class_map<GraphLarge> large_map;
+    
+    detail::edge_always_true edge_comp;
+
+    detail::matcher<GraphSmall, GraphLarge,
+        detail::default_vertex_class_map<GraphSmall>,
+        detail::default_vertex_class_map<GraphLarge>,
+        SubgraphIsoUserCallback,
+        VertexEquivalencePredicate,
+        detail::edge_always_true>
+    m(graph_small, graph_large, small_map, large_map, callback, vertex_comp_pred, edge_comp);
+    return m.match();
+}
+
+template< typename GraphSmall, typename GraphLarge, 
+          typename SubgraphIsoUserCallback, 
+          typename VertexEquivalencePredicate,
+          typename EdgeEquivalencePredicate>
+bool vf3_subgraph_iso(
+    const GraphSmall& graph_small,
+    const GraphLarge& graph_large,
+    SubgraphIsoUserCallback& callback,
+    VertexEquivalencePredicate vertex_comp_pred,
+    EdgeEquivalencePredicate edge_comp_pred
+)
+{
+    detail::default_vertex_class_map<GraphSmall> small_map;
+    detail::default_vertex_class_map<GraphLarge> large_map;
+
+    detail::matcher<GraphSmall, GraphLarge,
+        detail::default_vertex_class_map<GraphSmall>,
+        detail::default_vertex_class_map<GraphLarge>,
+        SubgraphIsoUserCallback,
+        VertexEquivalencePredicate,
+        EdgeEquivalencePredicate>
+    m(graph_small, graph_large, small_map, large_map, callback, vertex_comp_pred, edge_comp_pred);
+    return m.match();
+}
+
 
 } // namespace boost
 
